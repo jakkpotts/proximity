@@ -28,9 +28,9 @@ vendor_cache = {}
 TIMEOUT = 60  # 1 minute
 
 # Reference RSSI at 1 meter (you can tweak this based on the environment)
-RSSI_REF = -41
+RSSI_REF = -38
 # Path loss exponent (2-4), adjust depending on the environment
-PATH_LOSS_EXPONENT = 3.75
+PATH_LOSS_EXPONENT = 4.75
 
 # Create a console for rich
 console = Console()
