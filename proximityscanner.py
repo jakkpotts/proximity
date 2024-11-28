@@ -25,7 +25,7 @@ detected_devices_lock = Lock()
 vendor_cache = {}
 
 # Time to consider a device "gone" if no packets have been seen in this period
-TIMEOUT = 300  # 5 minutes
+TIMEOUT = 60  # 1 minute
 
 # Reference RSSI at 1 meter (you can tweak this based on the environment)
 RSSI_REF = -41
