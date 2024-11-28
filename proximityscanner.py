@@ -28,9 +28,9 @@ vendor_cache = {}
 TIMEOUT = 60  # 1 minute
 
 # Reference RSSI at 1 meter (you can tweak this based on the environment)
-RSSI_REF = -41
+RSSI_REF = -44
 # Path loss exponent (2-4), adjust depending on the environment
-PATH_LOSS_EXPONENT = 2.3
+PATH_LOSS_EXPONENT = 4
 
 # Create a console for rich
 console = Console()
@@ -68,7 +68,12 @@ def generate_device_key(mac, name):
 # Packet handler for sniffing Wi-Fi packets
 def packet_handler(packet):
     if packet.haslayer(Dot11):
-        if packet.type == 0 and packet.subtype == 4:
+        # Skip Beacon frames (AP packets) - these are Type 0, Subtype 8
+        if packet.type == 0 and packet.subtype == 8:  # Beacon frame from AP
+            return  # Skip processing for APs (Beacon frames)
+
+        # Process Data frames (Type 2) and Probe Requests (Type 0, Subtype 4)
+        if packet.type == 2:  # Data frame (likely from a client)
             client_mac = packet.addr2
             rssi = packet.dBm_AntSignal if hasattr(packet, 'dBm_AntSignal') else -100
             distance = estimate_distance(rssi)
@@ -77,7 +82,7 @@ def packet_handler(packet):
             with detected_devices_lock:
                 detected_devices[device_key] = (vendor, rssi, distance, time.time(), "Wi-Fi")
 
-        elif packet.type == 2:
+        elif packet.type == 0 and packet.subtype == 4:  # Probe Request (from a client searching for APs)
             client_mac = packet.addr2
             rssi = packet.dBm_AntSignal if hasattr(packet, 'dBm_AntSignal') else -100
             distance = estimate_distance(rssi)
@@ -85,7 +90,8 @@ def packet_handler(packet):
             device_key = generate_device_key(client_mac, vendor)  # Use MAC and vendor as the key
             with detected_devices_lock:
                 detected_devices[device_key] = (vendor, rssi, distance, time.time(), "Wi-Fi")
-
+                
+                
 # Perform BLE scan and add detected devices
 async def ble_scan():
     scanner = BleakScanner(detection_callback=handle_device)
@@ -178,10 +184,12 @@ async def start_ble_scanning():
 def handle_exit(signal_received, frame):
     asyncio.run(reset_adapter())
     exit(0)
+    
 
 # Register signal handlers for SIGINT (Ctrl+C) and SIGTERM
 signal.signal(signal.SIGINT, handle_exit)
 signal.signal(signal.SIGTERM, handle_exit)
+
 
 if __name__ == "__main__":
     # iface = input("Enter the network interface to use (e.g., wlan0): ")
