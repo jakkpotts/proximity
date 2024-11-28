@@ -59,10 +59,11 @@ def estimate_distance(rssi, rssi_ref=RSSI_REF, n=PATH_LOSS_EXPONENT):
     distance_feet = distance_meters * 3.28084  # Convert meters to feet
     return distance_feet
 
-# Function to generate a device key using MAC and name/UUID (if available)
+# Function to generate a device key using MAC and name/UUID (if available) and shorten the hash
 def generate_device_key(mac, name):
     device_id = f"{mac}_{name}"
-    return hashlib.sha256(device_id.encode()).hexdigest()
+    # Generate SHA-256 hash and truncate it to the first 8 characters for brevity
+    return hashlib.sha256(device_id.encode()).hexdigest()[:8]
 
 # Packet handler for sniffing Wi-Fi packets
 def packet_handler(packet):
@@ -121,7 +122,7 @@ async def reset_adapter():
 def create_table(devices):
     table = Table(title="Detected Devices")
 
-    table.add_column("MAC Address", style="cyan", no_wrap=True)
+    table.add_column("Device Hash", style="cyan", no_wrap=True)
     table.add_column("Vendor/Name", style="yellow")
     table.add_column("RSSI (dBm)", justify="right", style="magenta")
     table.add_column("Distance (ft)", justify="right", style="green")
@@ -133,8 +134,19 @@ def create_table(devices):
         for device_key, details in devices.items():
             vendor, rssi, distance, last_seen, detection_type = details
             time_ago = int(current_time - last_seen)
-            distance_display = Text(f"{distance:.2f}", style="bold red" if distance < 20 else "bold yellow" if distance <= 30 else "")
-            row_style = "red" if distance <= 25 else ""
+            
+            # Format the distance value
+            if distance <= 10:
+                distance_display = Text(f"{distance:.2f}", style="white")
+            elif distance <= 20:
+                distance_display = Text(f"{distance:.2f}", style="red")
+            elif distance <= 30:
+                distance_display = Text(f"{distance:.2f}", style="bold yellow")
+            else:
+                distance_display = Text(f"{distance:.2f}", style="")
+
+            # Set row style based on distance
+            row_style = "bold white on red" if distance <= 10 else ""
 
             table.add_row(device_key, vendor, f"{rssi}", distance_display, f"{time_ago}", detection_type, style=row_style)
     return table
