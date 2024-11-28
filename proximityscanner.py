@@ -10,13 +10,14 @@ from rich.live import Live
 from rich.text import Text
 from threading import Thread, Lock
 import signal
+import hashlib
 
 # Explicit imports from Scapy
 from scapy.layers.dot11 import Dot11
 from scapy.all import sniff
 
 # Dictionary to keep track of detected devices
-# Format: {MAC: (vendor, rssi, distance, last_seen, detection_type)}
+# Format: {device_key: (vendor, rssi, distance, last_seen, detection_type)}
 detected_devices = {}
 detected_devices_lock = Lock()
 
@@ -58,6 +59,11 @@ def estimate_distance(rssi, rssi_ref=RSSI_REF, n=PATH_LOSS_EXPONENT):
     distance_feet = distance_meters * 3.28084  # Convert meters to feet
     return distance_feet
 
+# Function to generate a device key using MAC and name/UUID (if available)
+def generate_device_key(mac, name):
+    device_id = f"{mac}_{name}"
+    return hashlib.sha256(device_id.encode()).hexdigest()
+
 # Packet handler for sniffing Wi-Fi packets
 def packet_handler(packet):
     if packet.haslayer(Dot11):
@@ -66,25 +72,23 @@ def packet_handler(packet):
             rssi = packet.dBm_AntSignal if hasattr(packet, 'dBm_AntSignal') else -100
             distance = estimate_distance(rssi)
             vendor = get_device_vendor(client_mac)
+            device_key = generate_device_key(client_mac, vendor)  # Use MAC and vendor as the key
             with detected_devices_lock:
-                detected_devices[client_mac] = (vendor, rssi, distance, time.time(), "Wi-Fi")
+                detected_devices[device_key] = (vendor, rssi, distance, time.time(), "Wi-Fi")
 
         elif packet.type == 2:
             client_mac = packet.addr2
             rssi = packet.dBm_AntSignal if hasattr(packet, 'dBm_AntSignal') else -100
             distance = estimate_distance(rssi)
             vendor = get_device_vendor(client_mac)
+            device_key = generate_device_key(client_mac, vendor)  # Use MAC and vendor as the key
             with detected_devices_lock:
-                detected_devices[client_mac] = (vendor, rssi, distance, time.time(), "Wi-Fi")
+                detected_devices[device_key] = (vendor, rssi, distance, time.time(), "Wi-Fi")
 
-'''
-This is not currently used, but effectively scans
-once asynchrously for ten seconds
 # Perform BLE scan and add detected devices
-async def single_ble_scan():
+async def ble_scan():
     scanner = BleakScanner(detection_callback=handle_device)
     try:
-        #console.print("[cyan]Starting BLE Scan...[/cyan]")
         await scanner.start()
         await asyncio.sleep(10)
     except BleakDBusError as e:
@@ -92,21 +96,21 @@ async def single_ble_scan():
         await reset_adapter()
     finally:
         await scanner.stop()
-        #console.print("[cyan]BLE scan stopped.[/cyan]")
-        
-'''
 
 async def handle_device(device, advertisement_data):
-        try:
-            mac = device.address
-            name = advertisement_data.local_name or "Unknown BLE Device"
-            rssi = advertisement_data.rssi
-            distance = estimate_distance(rssi)
-            with detected_devices_lock:
-                detected_devices[mac] = (name, rssi, distance, time.time(), "Bluetooth")
-        except Exception as e:
-            console.print(f"[red]Error handling device: {e}[/red]")
-        
+    try:
+        mac = device.address
+        name = advertisement_data.local_name or "Unknown BLE Device"
+        device_key = generate_device_key(mac, name)  # Generate a stable key using MAC and name
+
+        rssi = advertisement_data.rssi
+        distance = estimate_distance(rssi)
+
+        with detected_devices_lock:
+            detected_devices[device_key] = (name, rssi, distance, time.time(), "Bluetooth")
+    except Exception as e:
+        console.print(f"[red]Error handling device: {e}[/red]")
+
 # Reset Bluetooth adapter
 async def reset_adapter():
     os.system("sudo hciconfig hci0 down")
@@ -118,7 +122,7 @@ def create_table(devices):
     table = Table(title="Detected Devices")
 
     table.add_column("MAC Address", style="cyan", no_wrap=True)
-    table.add_column("Vendor/Name", style="white")
+    table.add_column("Vendor/Name", style="yellow")
     table.add_column("RSSI (dBm)", justify="right", style="magenta")
     table.add_column("Distance (ft)", justify="right", style="green")
     table.add_column("Last Seen (Seconds Ago)", justify="right")
@@ -126,24 +130,13 @@ def create_table(devices):
 
     current_time = time.time()
     with detected_devices_lock:
-        for mac, details in devices.items():
+        for device_key, details in devices.items():
             vendor, rssi, distance, last_seen, detection_type = details
             time_ago = int(current_time - last_seen)
-             
-             # Format the distance value
-            # distance_display = Text(f"{distance:.2f}", style="bold red" if distance <= 25 else "")
-            if distance <= 10:
-                distance_display = Text(f"{distance:.2f}", style="white")
-            elif distance <= 20:
-                distance_display = Text(f"{distance:.2f}", style="red")
-            elif distance <= 30:
-                distance_display = Text(f"{distance:.2f}", style="bold yellow")
-            else:
-                distance_display = Text(f"{distance:.2f}", style="")
-            #
-            row_style = "bold white on red" if distance <= 10 else ""
-            
-            table.add_row(mac, vendor, f"{rssi}", distance_display, f"{time_ago}", detection_type, style=row_style)
+            distance_display = Text(f"{distance:.2f}", style="bold red" if distance < 20 else "bold yellow" if distance <= 30 else "")
+            row_style = "red" if distance <= 25 else ""
+
+            table.add_row(device_key, vendor, f"{rssi}", distance_display, f"{time_ago}", detection_type, style=row_style)
     return table
 
 # Function to run sniffing in a separate thread
@@ -155,7 +148,6 @@ async def start_ble_scanning():
     while True:
         scanner = BleakScanner(detection_callback=handle_device)
         try:
-            # console.print("[cyan]Starting BLE Scan...[/cyan]")
             await scanner.start()
             await asyncio.sleep(12)  # Scan for 12 seconds
         except BleakDBusError as e:
@@ -163,10 +155,9 @@ async def start_ble_scanning():
             await reset_adapter()
         finally:
             await scanner.stop()
-            # console.print("[cyan]BLE scan stopped.[/cyan]")
         
-        # Wait for 5 seconds before the next scan to complete the 15-second cycle
-        # await asyncio.sleep(5)
+        # Wait for 5 seconds before the next scan
+        await asyncio.sleep(5)
 
 # Signal handler for graceful exit
 def handle_exit(signal_received, frame):
@@ -188,7 +179,6 @@ if __name__ == "__main__":
     sniffing_thread.start()
 
     # Start BLE scanning in a separate thread with its own event loop
-    # Modify the thread creation to use the updated function
     ble_thread = Thread(target=lambda: asyncio.run(start_ble_scanning()))
     ble_thread.daemon = True
     ble_thread.start()
@@ -203,8 +193,8 @@ if __name__ == "__main__":
             current_time = time.time()
             with detected_devices_lock:
                 detected_devices = {
-                    mac: details
-                    for mac, details in detected_devices.items()
+                    device_key: details
+                    for device_key, details in detected_devices.items()
                     if current_time - details[3] <= TIMEOUT
                 }
 
