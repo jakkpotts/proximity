@@ -197,10 +197,12 @@ if __name__ == "__main__":
     console.print("[bold green]Sniffing for Wi-Fi and Bluetooth devices...[/bold green]")
 
     # Start Wi-Fi sniffing in a separate thread
+    ''' implement this later, make it optional
     sniffing_thread = Thread(target=start_sniffing, args=(iface,))
     sniffing_thread.daemon = True
     sniffing_thread.start()
-
+    '''
+    
     # Start BLE scanning in a separate thread with its own event loop
     ble_thread = Thread(target=lambda: asyncio.run(start_ble_scanning()))
     ble_thread.daemon = True
