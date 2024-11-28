@@ -122,7 +122,7 @@ async def reset_adapter():
 def create_table(devices):
     table = Table(title="Detected Devices")
 
-    table.add_column("Device Hash", style="cyan", no_wrap=True)
+    table.add_column("Device hash", style="cyan", no_wrap=True)
     table.add_column("Vendor/Name", style="yellow")
     table.add_column("RSSI (dBm)", justify="right", style="magenta")
     table.add_column("Distance (ft)", justify="right", style="green")
@@ -131,7 +131,10 @@ def create_table(devices):
 
     current_time = time.time()
     with detected_devices_lock:
-        for device_key, details in devices.items():
+        # Sort devices by distance (least to greatest)
+        sorted_devices = sorted(devices.items(), key=lambda item: item[1][2])  # item[1][2] is the distance
+        
+        for device_key, details in sorted_devices:
             vendor, rssi, distance, last_seen, detection_type = details
             time_ago = int(current_time - last_seen)
             
